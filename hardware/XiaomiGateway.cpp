@@ -176,7 +176,6 @@ void XiaomiGateway::InsertUpdateSwitch(const std::string &nodeid, const std::str
 			customimage = 9;
 		}
 		m_sql.safe_query("UPDATE DeviceStatus SET Name='%q', SwitchType=%d, CustomImage=%i WHERE(HardwareID == %d) AND (DeviceID == '%q')", Name.c_str(), (subtype), customimage, m_HwdID, ID.c_str());
-
 		if (subtype == STYPE_Selector) {
 			result = m_sql.safe_query("SELECT ID FROM DeviceStatus WHERE (HardwareID==%d) AND (DeviceID=='%q') AND (Type==%d) ", m_HwdID, ID.c_str(), pTypeGeneralSwitch);
 			if (result.size() > 0)
@@ -187,7 +186,11 @@ void XiaomiGateway::InsertUpdateSwitch(const std::string &nodeid, const std::str
 				}
 				else if (Name == "Xiaomi Cube") {
 					// flip90/flip180/move/tap_twice/shake_air/swing/alert/free_fall
-					m_sql.SetDeviceOptions(atoi(Idx.c_str()), m_sql.BuildDeviceOptions("SelectorStyle:0;LevelNames:Off|flip90|flip180|move|tap_twice|shake_air|swing|alert|free_fall|clock_wise|anti_clock_wise", false));
+					m_sql.SetDeviceOptions(atoi(Idx.c_str()), m_sql.BuildDeviceOptions("SelectorStyle:0;LevelNames:Off|flip90|flip180|move|tap_twice|shake_air|swing|alert|free_fall", false));
+				}
+				else if (Name == "Xiaomi Wireless Wall Switch") {
+					//for Aqara wireless switch, 2 buttons supported 
+					m_sql.SetDeviceOptions(atoi(Idx.c_str()), m_sql.BuildDeviceOptions("SelectorStyle:0;LevelNames:Off|Switch 1|Switch 2", false));
 				}
 			}
 		}
@@ -402,12 +405,19 @@ void XiaomiGateway::xiaomi_udp_server::handle_receive(const boost::system::error
 					else if (model == "sensor_ht") {
 						name = "Xiaomi Temperature/Humidity";
 					}
-					else if (model == "cube") {
+					else if ((model == "") || (model == "cube")) { // temp work around for model not being reported
 						name = "Xiaomi Cube";
+						type = STYPE_Selector;
+					}
+					else if (model == "86sw2") {
+						name = "Xiaomi Wireless Wall Switch";
 						type = STYPE_Selector;
 					}
 					if (type != STYPE_END) {
 						std::string status = root2["status"].asString();
+						//Aqara's Wireless switch reports per channel
+						std::string aqara_wireless1 = root2["channel_0"].asString();
+						std::string aqara_wireless2 = root2["channel_1"].asString();
 						bool on = false;
 						int level = 0;
 						if ((status == "motion") || (status == "open") || (status == "no_close") || (status == "on")) {
@@ -416,11 +426,11 @@ void XiaomiGateway::xiaomi_udp_server::handle_receive(const boost::system::error
 						else if ((status == "no_motion") || (status == "close") || (status == "off")) {
 							on = false;
 						}
-						else if ((status == "click") || (status == "flip90")) {
+						else if ((status == "click") || (status == "flip90") || (aqara_wireless1 =="click")) {
 							level = 10;
 							on = true;
 						}
-						else if ((status == "long_click_press") || (status == "long_click_release") || (status == "flip180")) {
+						else if ((status == "long_click_press") || (status == "long_click_release") || (status == "flip180") || (aqara_wireless2 == "click")) {
 							level = 20;
 							on = true;
 						}
@@ -448,27 +458,8 @@ void XiaomiGateway::xiaomi_udp_server::handle_receive(const boost::system::error
 							level = 80;
 							on = true;
 						}
-						std::string no_motion = root2["no_motion"].asString();
-						if (no_motion != "") {
-							on = false;
-						}
-						std::string no_close = root2["no_close"].asString();
-						if (no_close != "") {
-							on = true;
-						}
 						std::string rotate = root2["rotate"].asString();
-						if (rotate != "") {
-							//convert to int
-							int amount = atoi(rotate.c_str());
-							if (amount > 0) {
-								level = 90;
-							}
-							else {
-								level = 100;
-							}
-							on = true;
-						}
-						//if (rotate == "") {
+						if (rotate == "") {
 							std::string battery = root2["battery"].asString();
 							if (battery != "") {
 								m_XiaomiGateway->InsertUpdateVoltage(sid.c_str(), name, atoi(battery.c_str()));
@@ -476,7 +467,7 @@ void XiaomiGateway::xiaomi_udp_server::handle_receive(const boost::system::error
 							else {
 								m_XiaomiGateway->InsertUpdateSwitch(sid.c_str(), name, on, type, level);
 							}
-						//}
+						}
 					}
 					else if (name == "Xiaomi Temperature/Humidity") {
 						std::string temperature = root2["temperature"].asString();
