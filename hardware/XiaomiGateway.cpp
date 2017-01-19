@@ -36,10 +36,57 @@ bool XiaomiGateway::WriteToHardware(const char * pdata, const unsigned char leng
 	unsigned char packettype = pCmd->ICMND.packettype;
 	unsigned char subtype = pCmd->ICMND.subtype;
 
-	if (packettype == pTypeGeneralSwitch) {
+		if (packettype == pTypeGeneralSwitch) {
 		_tGeneralSwitch *xcmd = (_tGeneralSwitch*)pdata;
 		if (xcmd->subtype == sSwitchTypeSelector) {
-			//_log.Log(LOG_STATUS, "WriteToHardware: Ignoring sSwitchTypeSelector");
+			std::string gatewaykey = GetGatewayKey();
+			std::string message = "";
+			char szTmp[50];
+			sprintf(szTmp, "%08X", (unsigned int)xcmd->id);
+			std::string ID = szTmp;
+			std::stringstream s_strid2;
+			s_strid2 << std::hex << ID;
+			std::string sid = s_strid2.str();
+			std::transform(sid.begin(), sid.end(), sid.begin(), ::tolower);
+
+			//append 158d00 to the front 
+			//158d0001190076
+			sid.insert(0, "158d00");
+			std::string cmdchannel = "";
+			if (xcmd->level == 10) {
+				cmdchannel = "\\\"channel_0\\\":\\\"on";
+			}
+			else if (xcmd->level == 20) {
+				cmdchannel = "\\\"channel_0\\\":\\\"off";
+			}
+			else if (xcmd->level == 30) {
+				cmdchannel = "\\\"channel_1\\\":\\\"on";;
+			}
+			else if (xcmd->level == 40) {
+				cmdchannel = "\\\"channel_1\\\":\\\"off";;
+			}
+			//std::string message2 = "{\"cmd\":\"write\",\"model\":\"ctrl_neutral2\",\"sid\":\"" + sid + "\",\"short_id\":0,\"data\":\"{\\\"channel_0\\\":\\\"" + "on" + "\\\",\\\"key\\\":\\\"" + gatewaykey + "\\\"}\" }";
+
+			std::string message2 = "{\"cmd\":\"write\",\"model\":\"ctrl_neutral2\",\"sid\":\"" + sid + "\",\"short_id\":0,\"data\":\"{" + cmdchannel + "\\\",\\\"key\\\":\\\"" + gatewaykey + "\\\"}\" }";
+			if (message2 != "") {
+				boost::asio::io_service io_service;
+				boost::asio::ip::udp::socket socket_(io_service, boost::asio::ip::udp::endpoint(boost::asio::ip::udp::v4(), 0));
+				boost::shared_ptr<std::string> message1(new std::string(message2));
+				boost::asio::ip::udp::endpoint remote_endpoint_;
+				remote_endpoint_ = boost::asio::ip::udp::endpoint(boost::asio::ip::address::from_string(m_GatewayIp), 9898);
+				socket_.send_to(boost::asio::buffer(*message1), remote_endpoint_);
+				sleep_milliseconds(150);
+				boost::array<char, 512> recv_buffer_;
+				memset(&recv_buffer_[0], 0, sizeof(recv_buffer_));
+				while (socket_.available() > 0) {
+					socket_.receive_from(boost::asio::buffer(recv_buffer_), remote_endpoint_);
+					std::string receivedString(recv_buffer_.data());
+					_log.Log(LOG_STATUS, "mycommand: %s", message2.c_str());
+					_log.Log(LOG_STATUS, "XiaomiGateway: response %s", receivedString.c_str());
+				}
+				socket_.close();
+			}
+
 			return true;
 		}
 		char szTmp[50];
